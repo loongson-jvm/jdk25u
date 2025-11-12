@@ -116,12 +116,15 @@ public class IREncodingPrinter {
         "asimd",
         "sve",
         "sve2",
-        // Riscv64
+        "fphp",
+        "asimdhp",
+        // RISCV64
         "rvv",
         "zbkb",
         "zfh",
         "zvbb",
         "zvfh",
+        "zvkn",
         // LoongArch
         "lsx",
         "lasx"
