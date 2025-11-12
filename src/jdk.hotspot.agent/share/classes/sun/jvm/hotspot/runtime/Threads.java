@@ -167,6 +167,7 @@ public class Threads {
         virtualConstructor.addMapping("JvmtiAgentThread", JavaThread.class);
         virtualConstructor.addMapping("NotificationThread", JavaThread.class);
         virtualConstructor.addMapping("AttachListenerThread", JavaThread.class);
+        virtualConstructor.addMapping("JfrRecorderThread", JavaThread.class);
 
         // These are all the hidden JavaThread subclasses that don't execute java code.
         virtualConstructor.addMapping("StringDedupThread", HiddenJavaThread.class);
@@ -204,7 +205,8 @@ public class Threads {
         } catch (Exception e) {
             throw new RuntimeException("Unable to deduce type of thread from address " + threadAddr +
             " (expected type JavaThread, CompilerThread, MonitorDeflationThread, AttachListenerThread," +
-            " DeoptimizeObjectsALotThread, StringDedupThread, NotificationThread, ServiceThread or JvmtiAgentThread)", e);
+            " DeoptimizeObjectsALotThread, StringDedupThread, NotificationThread, ServiceThread," +
+            " JfrRecorderThread, or JvmtiAgentThread)", e);
         }
     }
 
