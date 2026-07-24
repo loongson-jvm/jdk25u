@@ -1838,10 +1838,10 @@ void ObjectMonitor::wait(jlong millis, bool interruptible, TRAPS) {
   // could be profitable.
   //
   // TODO-FIXME: change the following logic to a loop of the form
-  //   while (!timeout && !interrupted && _notified == 0) park()
+  //   while (!timeout && !interrupted && node.TState == TS_WAIT) park()
 
   int ret = OS_OK;
-  int WasNotified = 0;
+  bool was_notified = false;
 
   // Need to check interrupt state whilst still _thread_in_vm
   bool interrupted = interruptible && current->is_interrupted(false);
@@ -1857,7 +1857,7 @@ void ObjectMonitor::wait(jlong millis, bool interruptible, TRAPS) {
       ThreadBlockInVMPreprocess<ClearSuccOnSuspend> tbivs(current, csos, true /* allow_suspend */);
       if (interrupted || HAS_PENDING_EXCEPTION) {
         // Intentionally empty
-      } else if (!node._notified) {
+      } else if (node.TState == ObjectWaiter::TS_WAIT) {
         if (millis <= 0) {
           current->_ParkEvent->park();
         } else {
@@ -1885,7 +1885,6 @@ void ObjectMonitor::wait(jlong millis, bool interruptible, TRAPS) {
       Thread::SpinAcquire(&_wait_set_lock);
       if (node.TState == ObjectWaiter::TS_WAIT) {
         dequeue_specific_waiter(&node);       // unlink from wait_set
-        assert(!node._notified, "invariant");
         node.TState = ObjectWaiter::TS_RUN;
       }
       Thread::SpinRelease(&_wait_set_lock);
@@ -1898,7 +1897,7 @@ void ObjectMonitor::wait(jlong millis, bool interruptible, TRAPS) {
     guarantee(node.TState != ObjectWaiter::TS_WAIT, "invariant");
     OrderAccess::loadload();
     if (has_successor(current)) clear_successor();
-    WasNotified = node._notified;
+    was_notified = node.TState == ObjectWaiter::TS_ENTER;
 
     // Reentry phase -- reacquire the monitor.
     // re-enter contended monitor after object.wait().
@@ -1911,7 +1910,7 @@ void ObjectMonitor::wait(jlong millis, bool interruptible, TRAPS) {
     if (JvmtiExport::should_post_monitor_waited()) {
       JvmtiExport::post_monitor_waited(current, this, ret == OS_TIMEOUT);
 
-      if (node._notified && has_successor(current)) {
+      if (was_notified && has_successor(current)) {
         // In this part of the monitor wait-notify-reenter protocol it
         // is possible (and normal) for another thread to do a fastpath
         // monitor enter-exit while this thread is still trying to get
@@ -1979,7 +1978,7 @@ void ObjectMonitor::wait(jlong millis, bool interruptible, TRAPS) {
   }
 
   // check if the notification happened
-  if (!WasNotified) {
+  if (!was_notified) {
     // no, it could be timeout or Thread.interrupt() or both
     // check for interrupt event, otherwise it is timeout
     if (interruptible && current->is_interrupted(true) && !HAS_PENDING_EXCEPTION) {
@@ -2002,7 +2001,6 @@ bool ObjectMonitor::notify_internal(JavaThread* current) {
   ObjectWaiter* iterator = dequeue_waiter();
   if (iterator != nullptr) {
     guarantee(iterator->TState == ObjectWaiter::TS_WAIT, "invariant");
-    guarantee(!iterator->_notified, "invariant");
 
     if (iterator->is_vthread()) {
       oop vthread = iterator->vthread();
@@ -2020,7 +2018,6 @@ bool ObjectMonitor::notify_internal(JavaThread* current) {
       }
     }
 
-    iterator->_notified = true;
     iterator->_notifier_tid = JFR_THREAD_ID(current);
     did_notify = true;
     add_to_entry_list(current, iterator);
@@ -2164,7 +2161,6 @@ bool ObjectMonitor::vthread_wait_reenter(JavaThread* current, ObjectWaiter* node
     Thread::SpinAcquire(&_wait_set_lock);
     if (node->TState == ObjectWaiter::TS_WAIT) {
       dequeue_specific_waiter(node);       // unlink from wait_set
-      assert(!node->_notified, "invariant");
       node->TState = ObjectWaiter::TS_RUN;
     }
     Thread::SpinRelease(&_wait_set_lock);
@@ -2470,7 +2466,6 @@ ObjectWaiter::ObjectWaiter(JavaThread* current) {
   _notifier_tid = 0;
   _recursions = 0;
   TState    = TS_RUN;
-  _notified = false;
   _is_wait  = false;
   _at_reenter = false;
   _interrupted = false;
